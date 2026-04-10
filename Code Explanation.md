@@ -91,19 +91,28 @@ This is the central nervous system. It combines the database, users, and images 
 * `contextlib.asynccontextmanager`: Helps manage code that must run exactly when the server starts or stops.  
 * `sqlalchemy.select`: Used to search the database.  
 * `shutil.copyfileobj`: A tool for efficiently copying large files in small chunks without crashing your server's RAM.  
-* `tempfile.NamedTemporaryFile`: Asks the operating system to safely create a temporary file on the hard drive.
+* `tempfile.NamedTemporaryFile`: Asks the operating system to safely create a temporary file on the hard drive.  
+* `sqlalchemy.delete`: A tool used to manually write queries that permanently remove specific rows from the database.  
+* `app.users.UserManager` & `get_user_manager`: Imported from your own `users.py` file to handle the complex logic of securely deleting user accounts.
 
 **Created Functions:**
 
 * `lifespan`: Runs the database creation step right as the server boots up.  
 * `upload_file`: Receives an uploaded file, saves it to ImageKit, and creates a record in your database.  
 * `get_feed`: Grabs all posts from the database to show to the user.  
-* `delete_post`: Removes a post from the database if the user is the owner.
+* `delete_post`: Removes a post from the database if the user is the owner.  
+* `delete_user_me`: A custom security route that allows a logged-in user to permanently delete their own account while safely wiping all their uploaded posts first.
 
 **Code Explanation (Block-by-Block):**
 
 * `app = FastAPI(...)`: Starts the actual web server application.  
 * `app.include_router(...)`: Plugs in all the pre-built user routes (like `/auth/register` and `/auth/jwt/login`) so users can actually interact with the security system you defined in `users.py`.  
+* **Delete User Route (`@app.delete("/users/me")`):**  
+  * It requires the logged-in user, the user manager tool, and an active database session.  
+  * `await session.execute(delete(Post)...)`: Before deleting the user, this manually hunts down every post matching the user's ID and deletes them from the database to prevent orphaned data errors.  
+  * `await session.commit()`: Saves the post deletions to the database.  
+  * `await user_manager.delete(user)`: Hands the actual account deletion over to the `fastapi-users` library to handle securely.  
+  * `except Exception... await session.rollback()`: A built-in safety net. If deleting the user fails for some reason, this undoes the post deletions so the database isn't left in a broken, half-deleted state.  
 * **Upload Route (`@app.post("/upload")`):**  
   * It requires a `file`, a `caption`, and a logged-in `user` (`Depends(current_active_user)`).  
   * `with tempfile.NamedTemporaryFile(delete=False...)`: Creates a temporary file on the server's disk. `delete=False` is crucial here; it prevents Python from deleting the file before ImageKit gets a chance to read it.  
