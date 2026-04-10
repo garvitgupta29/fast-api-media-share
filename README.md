@@ -6,3 +6,7 @@ To run this project without issues:
 * Run the following commands in two terminals:
   * uv run main.py
   * uv run streamlit run frontend.py
+
+Used command below to avoid mistakenly pushing the changes to github for .env file.
+git update-index --skip-worktree .env 
+(In case if we want to rollback this change: git update-index --no-skip-worktree .env)

@@ -3,14 +3,14 @@ from app.schemas import PostCreate, PostResponse, UserRead, UserCreate, UserUpda
 from app.db import Post, create_db_and_tables, get_async_session, User
 from sqlalchemy.ext.asyncio import AsyncSession
 from contextlib import asynccontextmanager
-from sqlalchemy import select
+from sqlalchemy import select, delete
 from app.images import imagekit
 # from imagekitio.models.UploadFileRequestOptions import UploadFileRequestOptions
 import shutil
 import os
 import uuid
 import tempfile
-from app.users import auth_backend, current_active_user, fastapi_users
+from app.users import auth_backend, current_active_user, fastapi_users, UserManager, get_user_manager
 
 
 @asynccontextmanager
@@ -25,6 +25,28 @@ app.include_router(fastapi_users.get_auth_router(auth_backend), prefix='/auth/jw
 app.include_router(fastapi_users.get_register_router(UserRead, UserCreate), prefix="/auth", tags=["auth"])
 app.include_router(fastapi_users.get_reset_password_router(), prefix="/auth", tags=["auth"])
 app.include_router(fastapi_users.get_verify_router(UserRead), prefix="/auth", tags=["auth"])
+
+# We need to declare our specific /users/me route before we include the generic get_users_router(). 
+# This tells FastAPI to catch the literal string "me" before it falls back to the {id} wildcard.
+@app.delete("/users/me", tags=["users"])
+async def delete_user_me(
+    user: User = Depends(current_active_user),
+    user_manager: UserManager = Depends(get_user_manager),
+    session: AsyncSession = Depends(get_async_session) # <-- Add the session here
+):
+    try:
+        # 1. Manually delete all posts belonging to this user first
+        await session.execute(delete(Post).where(Post.user_id == user.id))
+        await session.commit()
+
+        # 2. Now let fastapi-users safely delete the user account
+        await user_manager.delete(user)
+        
+        return {"success": True, "message": "User and associated posts deleted successfully"}
+    except Exception as e:
+        await session.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+
 app.include_router(fastapi_users.get_users_router(UserRead, UserUpdate), prefix="/users", tags=["users"])
 
 @app.post("/upload")
@@ -80,7 +102,6 @@ async def upload_file(
         file.file.close()
 
 
-
 @app.get("/feed")
 async def get_feed(
     session: AsyncSession = Depends(get_async_session),
@@ -110,6 +131,7 @@ async def get_feed(
         )
 
     return {"posts": posts_data}
+
 
 @app.delete("/posts/{post_id}")
 async def delete_post(
